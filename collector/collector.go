@@ -2,6 +2,7 @@ package collector
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -25,8 +26,12 @@ type shardAwarenessMetrics struct {
 	collectionTime     float64
 }
 
-var clusterName string
-var metricsCtx shardAwarenessMetrics
+var (
+	requestTimeout = flag.Int("query.timeout", 15, "How often should daemon query metrics")
+	requestRetries = flag.Int("query.retries", 3, "How often should daemon query metrics")
+	clusterName    string
+	metricsCtx     shardAwarenessMetrics
+)
 
 func NewShardCollector() *shardCollector {
 	return &shardCollector{
@@ -99,6 +104,7 @@ func getShardsAwarenessStats(esAddress string) (float64, float64) {
 	err := json.Unmarshal(shardList, &indexAttributes)
 	if err != nil {
 		log.Error(err)
+		return 0, 0
 	}
 
 	log.Debug("Shard list retreived. Shards total: ", len(indexAttributes))
@@ -133,17 +139,29 @@ func getShardsAwarenessStats(esAddress string) (float64, float64) {
 func getEsShardsList(esAddress string) []byte {
 	endpoint := []string{esAddress, "/_cat/shards?h=index,shard,prirep,node&format=json"}
 	url := strings.Join(endpoint, "")
-	return getJSON(url)
+	shardList, err := getJSON(url)
+	if err != nil {
+		log.Error(err)
+	}
+
+	return shardList
 }
 
 func GetEsClusterName(esAddress string) string {
 	var f interface{}
 
-	clusterInfo := getJSON(esAddress)
-	err := json.Unmarshal(clusterInfo, &f)
+	clusterInfo, err := getJSON(esAddress)
 	if err != nil {
 		log.Error(err)
+		return ""
 	}
+
+	err = json.Unmarshal(clusterInfo, &f)
+	if err != nil {
+		log.Error(err)
+		return ""
+	}
+
 	m := f.(map[string]interface{})
 	for k, v := range m {
 		if k == "cluster_name" {
@@ -152,23 +170,27 @@ func GetEsClusterName(esAddress string) string {
 			return clusterName
 		}
 	}
-	return "Unknown"
+	return ""
 }
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+func getJSON(url string) ([]byte, error) {
+	var (
+		httpClient *http.Client = &http.Client{Timeout: time.Duration(*requestTimeout) * time.Second}
+		response   *http.Response
+		body       []byte
+		err        error
+	)
 
-func getJSON(url string) []byte {
-	r, err := httpClient.Get(url)
-	if err != nil {
-		log.Error(err)
+	for *requestRetries >= 0 {
+		response, err = httpClient.Get(url)
+		if err != nil {
+			log.Error("Error with request: ", err, ". Retries left: ", *requestRetries)
+			*requestRetries--
+		} else {
+			body, err = ioutil.ReadAll(response.Body)
+			defer response.Body.Close()
+			break
+		}
 	}
-
-	defer r.Body.Close()
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Error(err)
-	}
-
-	return body
+	return body, err
 }
