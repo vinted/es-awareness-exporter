@@ -35,6 +35,10 @@ Following config parameters are available:
     	host:port Address to listen on for web interface (default ":9709")
   -query.interval int
       How often should daemon query metrics (default 15)
+  -query.retries int
+      How meny times metrics query should be retried (default 3)
+  -query.timeout int
+      Query timeout (default 15)
   -log.level string
       Logging level (default "info")
   -es.address sting
