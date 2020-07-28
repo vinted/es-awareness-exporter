@@ -90,6 +90,7 @@ type shardAttributes struct {
 	Shard  string
 	Prirep string
 	Node   string
+	State  string
 }
 
 func getShardsAwarenessStats(esAddress string) (float64, float64) {
@@ -113,6 +114,9 @@ func getShardsAwarenessStats(esAddress string) (float64, float64) {
 
 	// Map shards to zones
 	for _, shard := range indexAttributes {
+		if shard.State != "STARTED" {
+			continue
+		}
 		indexShard := strings.Join([]string{shard.Index, shard.Shard}, "-")
 		zone := strings.Split(shard.Node, "-")[1]
 		if shardas, ok := shardMap[indexShard]; ok {
@@ -137,7 +141,7 @@ func getShardsAwarenessStats(esAddress string) (float64, float64) {
 }
 
 func getEsShardsList(esAddress string) []byte {
-	endpoint := []string{esAddress, "/_cat/shards?h=index,shard,prirep,node&format=json"}
+	endpoint := []string{esAddress, "/_cat/shards?h=index,shard,prirep,node,state&format=json"}
 	url := strings.Join(endpoint, "")
 	shardList, err := getJSON(url)
 	if err != nil {
