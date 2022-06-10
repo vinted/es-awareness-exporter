@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kelseyhightower/envconfig"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 )
@@ -97,9 +98,8 @@ func getShardsAwarenessStats(esAddress string) (float64, float64) {
 	var countAware float64
 	var countUnAware float64
 	var indexAttributes []shardAttributes
-	var shardList []byte
 
-	shardList = getEsShardsList(esAddress)
+	var shardList []byte = getEsShardsList(esAddress)
 	clusterName = GetEsClusterName(esAddress)
 
 	err := json.Unmarshal(shardList, &indexAttributes)
@@ -177,21 +177,42 @@ func GetEsClusterName(esAddress string) string {
 	return ""
 }
 
+type Specification struct {
+	EsUsername *string
+	EsPassword *string
+}
+
+func getEnvSpec() (s Specification) {
+	envconfig.Process("", &s)
+	return
+}
+
 func getJSON(url string) ([]byte, error) {
 	var (
 		httpClient *http.Client = &http.Client{Timeout: time.Duration(*requestTimeout) * time.Second}
 		response   *http.Response
 		body       []byte
 		err        error
+		specs      Specification = getEnvSpec()
 	)
 
 	for *requestRetries >= 0 {
-		response, err = httpClient.Get(url)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if specs.EsUsername != nil && specs.EsPassword != nil {
+			req.SetBasicAuth(*specs.EsUsername, *specs.EsPassword)
+		}
+
+		response, err = httpClient.Do(req)
 		if err != nil {
 			log.Error("Error with request: ", err, ". Retries left: ", *requestRetries)
 			*requestRetries--
 		} else {
-			body, err = ioutil.ReadAll(response.Body)
+			body, _ = ioutil.ReadAll(response.Body)
 			defer response.Body.Close()
 			break
 		}
